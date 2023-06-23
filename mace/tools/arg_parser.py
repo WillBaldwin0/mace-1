@@ -197,6 +197,11 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         default=True,
     )
 
+    # transfer to new species
+    parser.add_argument(
+        "--pretrained_model", type=str, default=None
+    )
+
     # Dataset
     parser.add_argument(
         "--train_file", help="Training set xyz file", type=str, required=True

@@ -24,6 +24,7 @@ from mace.tools.scripts_utils import (
     create_error_table,
     get_dataset_from_xyz,
 )
+from mace.tools.transfer_model_params import replace_parameters
 
 
 def main() -> None:
@@ -71,14 +72,26 @@ def main() -> None:
         f"tests=[{', '.join([name + ': ' + str(len(test_configs)) for name, test_configs in collections.tests])}]"
     )
 
+    if args.pretrained_model is not None:
+        logging.info("using pretrained model")
+        use_pretrained = True
+        trained_model = torch.load(f=args.pretrained_model, map_location="cpu")
+    else:
+        use_pretrained = False
+
     # Atomic number table
-    # yapf: disable
-    z_table = tools.get_atomic_number_table_from_zs(
-        z
-        for configs in (collections.train, collections.valid)
-        for config in configs
-        for z in config.atomic_numbers
-    )
+    if use_pretrained:
+        pretrained_zs = trained_model.atomic_numbers.detach().clone().tolist()
+        command_line_zs = [z for z in ast.literal_eval(args.E0s).keys()]
+        z_table = tools.get_atomic_number_table_from_zs(pretrained_zs + command_line_zs)
+    else:
+        # yapf: disable
+        z_table = tools.get_atomic_number_table_from_zs(
+            z
+            for configs in (collections.train, collections.valid)
+            for config in configs
+            for z in config.atomic_numbers
+        )
     # yapf: enable
     logging.info(z_table)
     if args.model == "AtomicDipolesMACE":
@@ -330,6 +343,10 @@ def main() -> None:
         )
     else:
         raise RuntimeError(f"Unknown model: '{args.model}'")
+    
+    # transfer stuff
+    if use_pretrained:
+        replace_parameters(model, trained_model, model_config)
 
     model.to(device)
 

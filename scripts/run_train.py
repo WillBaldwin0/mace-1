@@ -73,6 +73,8 @@ def main() -> None:
     )
 
     if args.pretrained_model is not None:
+        if args.restart_latest:
+            raise ValueError('cannot use restart_latest with pretrained model')
         logging.info("using pretrained model")
         use_pretrained = True
         trained_model = torch.load(f=args.pretrained_model, map_location="cpu")

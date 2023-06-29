@@ -27,6 +27,7 @@ from .utils import (
     compute_rmse,
 )
 
+from .transfer_model_params import train_species_dep_weights
 
 @dataclasses.dataclass
 class SWAContainer:
@@ -56,6 +57,7 @@ def train(
     ema: Optional[ExponentialMovingAverage] = None,
     max_grad_norm: Optional[float] = 10.0,
     log_wandb: bool = False,
+    release_sd_weights = None
 ):
     lowest_loss = np.inf
     valid_loss = np.inf
@@ -70,6 +72,8 @@ def train(
     logging.info("Started training")
     epoch = start_epoch
     while epoch < max_num_epochs:
+        if (release_sd_weights is not None) and (release_sd_weights == epoch):
+            train_species_dep_weights(model, True)
         # LR scheduler and SWA update
         if swa is None or epoch < swa.start:
             if epoch > start_epoch:

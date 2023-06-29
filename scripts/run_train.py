@@ -24,7 +24,7 @@ from mace.tools.scripts_utils import (
     create_error_table,
     get_dataset_from_xyz,
 )
-from mace.tools.transfer_model_params import replace_parameters
+from mace.tools.transfer_model_params import replace_parameters, train_species_dep_weights
 
 
 def main() -> None:
@@ -504,6 +504,9 @@ def main() -> None:
         )
         wandb.run.summary["params"] = args_dict_json
 
+    if use_pretrained:
+        train_species_dep_weights(model, False)
+
     tools.train(
         model=model,
         loss_fn=loss_fn,
@@ -524,6 +527,7 @@ def main() -> None:
         max_grad_norm=args.clip_grad,
         log_errors=args.error_table,
         log_wandb=args.wandb,
+        release_sd_weights=args.release_weights_epoch
     )
 
     # Evaluation on test datasets

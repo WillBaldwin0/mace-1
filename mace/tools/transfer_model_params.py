@@ -1,6 +1,5 @@
 
 import re
-from mace import modules
 import torch
 from e3nn import o3
 
@@ -36,7 +35,7 @@ def replace_parameters(model, trained_model, model_config):
 
         assert param.shape == tparam.shape, "missmatch between parameter shape in current model and pretrained model. Check model specification."
         param[:] = tparam.detach().clone()
-
+    
     # node embedding
     hidden_irreps = model_config["hidden_irreps"]
     node_feats_irreps_first = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))])
@@ -108,3 +107,17 @@ def replace_parameters(model, trained_model, model_config):
             continue
 
         assert torch.allclose(param, tparam)
+
+
+def train_species_dep_weights(model, flag):
+    species_dep_parameter_patterns = [
+        "node_embedding\.linear\.weight",
+        "interactions\..\.skip_tp\.weight",
+        "products\..\.symmetric_contractions.contractions\..\.weights_max",
+        "products\..\.symmetric_contractions.contractions\..\.weights\.."
+    ]
+
+    for name, param in model.named_parameters():
+        for pattern in species_dep_parameter_patterns:
+            if re.fullmatch(pattern, name):
+                param.requires_grad = flag

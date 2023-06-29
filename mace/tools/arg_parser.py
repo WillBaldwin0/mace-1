@@ -201,6 +201,9 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pretrained_model", type=str, default=None
     )
+    parser.add_argument(
+        "--release_weights_epoch", type=int, default=0
+    )
 
     # Dataset
     parser.add_argument(

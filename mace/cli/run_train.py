@@ -24,6 +24,7 @@ from torch_ema import ExponentialMovingAverage
 import mace
 from mace import data, tools
 from mace.calculators.foundations_models import mace_mp, mace_off
+from mace.data import KeySpecification, update_keyspec_from_kwargs
 from mace.tools import torch_geometric
 from mace.tools.model_script_utils import configure_model
 from mace.tools.multihead_tools import (
@@ -68,6 +69,10 @@ def run(args: argparse.Namespace) -> None:
     """
     tag = tools.get_tag(name=args.name, seed=args.seed)
     args, input_log_messages = tools.check_args(args)
+
+    # default keyspec to update using heads dictionary
+    args.key_specification = KeySpecification()
+    update_keyspec_from_kwargs(args.key_specification, vars(args))
 
     if args.device == "xpu":
         try:
@@ -152,12 +157,26 @@ def run(args: argparse.Namespace) -> None:
 
     if args.heads is not None:
         args.heads = ast.literal_eval(args.heads)
+        for _, head_dict in args.heads.items():
+            # priority is global args < head property_key values < head info_keys+arrays_keys
+            head_keyspec = deepcopy(args.key_specification)
+            update_keyspec_from_kwargs(head_keyspec, head_dict)
+            head_keyspec.update(
+                info_keys=head_dict.get("info_keys", {}),
+                arrays_keys=head_dict.get("arrays_keys", {}),
+            )
+            head_dict["key_specification"] = head_keyspec
     else:
         args.heads = prepare_default_head(args)
 
     logging.info("===========LOADING INPUT DATA===========")
     heads = list(args.heads.keys())
     logging.info(f"Using heads: {heads}")
+    logging.info("Using the key specifications to parse data:")
+    for name, head_dict in args.heads.items():
+        head_keyspec = head_dict["key_specification"]
+        logging.info(f"{name}: {head_keyspec}")
+
     head_configs: List[HeadConfig] = []
     for head, head_args in args.heads.items():
         logging.info(f"=============    Processing head {head}     ===========")
@@ -186,7 +205,6 @@ def run(args: argparse.Namespace) -> None:
                 head_config.atomic_energies_dict = ast.literal_eval(
                     statistics["atomic_energies"]
                 )
-
         # Data preparation
         if head_config.train_file.endswith(".xyz"):
             if head_config.valid_file is not None:
@@ -204,12 +222,7 @@ def run(args: argparse.Namespace) -> None:
                 config_type_weights=config_type_weights,
                 test_path=head_config.test_file,
                 seed=args.seed,
-                energy_key=head_config.energy_key,
-                forces_key=head_config.forces_key,
-                stress_key=head_config.stress_key,
-                virials_key=head_config.virials_key,
-                dipole_key=head_config.dipole_key,
-                charges_key=head_config.charges_key,
+                key_specification=head_config.key_specification,
                 head_name=head_config.head_name,
                 keep_isolated_atoms=head_config.keep_isolated_atoms,
             )
@@ -251,14 +264,21 @@ def run(args: argparse.Namespace) -> None:
                 "Using foundation model for multiheads finetuning with Materials Project data"
             )
             heads = list(dict.fromkeys(["pt_head"] + heads))
+            mp_keyspec = KeySpecification()
+            update_keyspec_from_kwargs(mp_keyspec, vars(args))
+            mp_keyspec.update(
+                info_keys={"energy": "energy", "stress": "stress"},
+                arrays_keys={"forces": "forces"},
+            )
             head_config_pt = HeadConfig(
                 head_name="pt_head",
                 E0s="foundation",
                 statistics_file=args.statistics_file,
+                key_specification=mp_keyspec,
                 compute_avg_num_neighbors=False,
                 avg_num_neighbors=model_foundation.interactions[0].avg_num_neighbors,
             )
-            collections = assemble_mp_data(args, tag, head_configs)
+            collections = assemble_mp_data(args, tag, head_configs, head_config_pt)
             head_config_pt.collections = collections
             head_config_pt.train_file = f"mp_finetuning-{tag}.xyz"
             head_configs.append(head_config_pt)
@@ -275,12 +295,7 @@ def run(args: argparse.Namespace) -> None:
                 config_type_weights=None,
                 test_path=None,
                 seed=args.seed,
-                energy_key=args.energy_key,
-                forces_key=args.forces_key,
-                stress_key=args.stress_key,
-                virials_key=args.virials_key,
-                dipole_key=args.dipole_key,
-                charges_key=args.charges_key,
+                key_specification=args.key_specification,
                 head_name="pt_head",
                 keep_isolated_atoms=args.keep_isolated_atoms,
             )
@@ -292,12 +307,7 @@ def run(args: argparse.Namespace) -> None:
                 statistics_file=args.statistics_file,
                 valid_fraction=args.valid_fraction,
                 config_type_weights=None,
-                energy_key=args.energy_key,
-                forces_key=args.forces_key,
-                stress_key=args.stress_key,
-                virials_key=args.virials_key,
-                dipole_key=args.dipole_key,
-                charges_key=args.charges_key,
+                key_specification=args.key_specification,
                 keep_isolated_atoms=args.keep_isolated_atoms,
                 collections=collections,
                 avg_num_neighbors=model_foundation.interactions[0].avg_num_neighbors,
@@ -651,7 +661,7 @@ def run(args: argparse.Namespace) -> None:
                         folder, r_max=args.r_max, z_table=z_table, heads=heads, head=head_config.head_name
                     )
         for test_name, test_set in test_sets.items():
-            print(test_name)
+            logging.info("test_name", test_name)
             test_sampler = None
             if args.distributed:
                 test_sampler = torch.utils.data.distributed.DistributedSampler(
